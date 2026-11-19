@@ -54,30 +54,40 @@ def run_tool(call):
         return f"Error: {error}"
 
 
-question = "Which files are in the secrets folder?"
+history = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-messages = [
-    {"role": "system", "content": SYSTEM_PROMPT},
-    {"role": "user", "content": question},
-]
 
-# 1. The model decides whether to use the tool
-resp = client.chat.completions.create(model=MODEL, messages=messages, temperature=0)
-raw = resp.choices[0].message.content
-print("Model said:", raw)
+def ask(user_text):
+    """Send one user message, run the tool if needed, and return the final answer."""
+    history.append({"role": "user", "content": user_text})
 
-# 2. Is it a tool call or a normal answer?
-call = parse_tool_call(raw)
+    resp = client.chat.completions.create(model=MODEL, messages=history, temperature=0)
+    raw = resp.choices[0].message.content
+    call = parse_tool_call(raw)
 
-if call is None:
-    print("Answer:", raw.strip())
-else:
+    if call is None:
+        answer = raw.strip()
+        history.append({"role": "assistant", "content": answer})
+        return answer
+
     result = run_tool(call)
-    print("Tool result:", result)
+    print(f"  [tool] search_files({call.get('arguments')}) -> {result}")
 
-    # 3. Send the result back and get the final answer
-    messages.append({"role": "assistant", "content": raw})
-    messages.append({"role": "user", "content": f"Tool result: {json.dumps(result)}. Answer the user's question concisely."})
+    history.append({"role": "assistant", "content": raw})
+    history.append({"role": "user", "content": f"Tool result: {json.dumps(result)}. Answer the user's question concisely."})
 
-    final = client.chat.completions.create(model=MODEL, messages=messages)
-    print("Answer:", final.choices[0].message.content)
+    final = client.chat.completions.create(model=MODEL, messages=history)
+    answer = final.choices[0].message.content.strip()
+    history.append({"role": "assistant", "content": answer})
+    return answer
+
+
+if __name__ == "__main__":
+    print("File search agent. Type 'exit' to quit.")
+    while True:
+        user_text = input("\nYou: ").strip()
+        if user_text.lower() in ("exit", "quit"):
+            break
+        if not user_text:
+            continue
+        print("Agent:", ask(user_text))
